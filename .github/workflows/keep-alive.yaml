@@ -1,0 +1,30 @@
+name: Déclic Studio Keep-Alive
+
+on:
+  schedule:
+    # S'exécute tous les 3 jours à minuit
+    - cron: '0 0 */3 * *'
+  workflow_dispatch:
+
+jobs:
+  ping-database:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Ping Supabase Edge Function ou Base
+      env:
+        SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+        SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      run: |
+        response=$(curl -s -o /dev/null -w "%{http_code}" -X GET \
+          "$SUPABASE_URL/rest/v1/galleries?select=id&limit=1" \
+          -H "apikey: $SUPABASE_ANON_KEY" \
+          -H "Authorization: Bearer $SUPABASE_ANON_KEY")
+
+        echo "Code HTTP retourné par Supabase : $response"
+        
+        if [ "$response" -eq 200 ] || [ "$response" -eq 206 ]; then
+          echo "Base de données réveillée avec succès !"
+        else
+          echo "Attention, code de réponse inattendu : $response"
+          exit 1
+        fi
