@@ -53,6 +53,7 @@ Deno.serve(async (req: Request) => {
       }
 
       const selectedIds = selectedIdsRaw.split(',').filter(Boolean);
+      const amountPaid = session.amount_total != null ? session.amount_total / 100 : 0;
 
       // 1. Mark selected photos
       const { error: photoErr } = await supabase
@@ -71,7 +72,24 @@ Deno.serve(async (req: Request) => {
         .eq('id', galleryId);
       if (galErr) throw galErr;
 
-      // 3. Fetch gallery + selected photo filenames for photographer email
+      // 3. Record payment in the payments table
+      const { error: payErr } = await supabase
+        .from('payments')
+        .upsert({
+          gallery_id: galleryId,
+          stripe_session_id: session.id,
+          amount_paid: amountPaid,
+          currency: session.currency ?? 'eur',
+          extra_count: selectedIds.length,
+          payment_status: 'paid',
+          payment_method: 'stripe',
+          paid_at: new Date().toISOString(),
+        }, { onConflict: 'stripe_session_id' });
+      if (payErr) {
+        console.error('[stripe-webhook] Failed to record payment:', payErr.message);
+      }
+
+      // 4. Fetch gallery + selected photo filenames for photographer email
       const { data: gallery } = await supabase
         .from('galleries')
         .select('*')
@@ -83,22 +101,22 @@ Deno.serve(async (req: Request) => {
         .select('filename')
         .in('id', selectedIds);
 
-      // 4. Send photographer notification (best-effort)
+      // 5. Send photographer notification
       if (gallery) {
-        try {
-          await fetch(`${supabaseUrl}/functions/v1/send-delivery-email`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              type: 'photographer_selection_notice',
-              gallery_id: galleryId,
-              client_name: gallery.client_name,
-              client_email: gallery.client_email,
-              selected_filenames: (selectedPhotos ?? []).map((p) => p.filename),
-            }),
-          });
-        } catch {
-          // best-effort
+        const emailRes = await fetch(`${supabaseUrl}/functions/v1/send-delivery-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'photographer_selection_notice',
+            gallery_id: galleryId,
+            client_name: gallery.client_name,
+            client_email: gallery.client_email,
+            selected_filenames: (selectedPhotos ?? []).map((p) => p.filename),
+          }),
+        });
+        if (!emailRes.ok) {
+          const errText = await emailRes.text().catch(() => 'unreadable');
+          console.error('[stripe-webhook] send-delivery-email failed:', emailRes.status, errText);
         }
       }
     }

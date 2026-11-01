@@ -45,6 +45,21 @@ export interface GalleryWithDetails extends Gallery {
   photos: Photo[];
 }
 
+export type PaymentStatus = 'free' | 'paid' | 'pending' | 'failed';
+
+export interface Payment {
+  id: string;
+  gallery_id: string;
+  stripe_session_id: string | null;
+  amount_paid: number;
+  currency: string;
+  extra_count: number;
+  payment_status: PaymentStatus;
+  payment_method: string | null;
+  paid_at: string | null;
+  created_at: string;
+}
+
 /** Calculate the extra cost for a selection count against a pricing grid. */
 export function calculateExtraPrice(
   grid: Pick<PricingGrid, 'included_photos' | 'base_extra_price' | 'tiered_pricing'>,

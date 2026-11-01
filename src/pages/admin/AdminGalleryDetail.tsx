@@ -9,19 +9,23 @@ import {
   Loader2,
   AlertCircle,
   Copy,
+  CreditCard,
+  Receipt,
 } from 'lucide-react';
 import { supabase, PREVIEW_BUCKET, FINAL_HD_BUCKET } from '@/lib/supabase';
-import type { Gallery, PricingGrid, Photo } from '@/types';
+import type { Gallery, PricingGrid, Photo, Payment } from '@/types';
 import { Button } from '@/components/Button';
 import { StatusBadge } from '@/components/StatusBadge';
 import { Spinner } from '@/components/Spinner';
 import { navigate } from '@/lib/router';
+import { formatEuro } from '@/lib/format';
 import { AdminLayout } from './AdminLayout';
 
 interface GalleryDetail {
   gallery: Gallery;
   pricing_grid: PricingGrid;
   photos: Photo[];
+  payment: Payment | null;
 }
 
 export function AdminGalleryDetail({ id }: { id: string }) {
@@ -237,6 +241,62 @@ export function AdminGalleryDetail({ id }: { id: string }) {
           </div>
         </div>
       </div>
+
+      {/* Récapitulatif paiement */}
+      {detail.payment && (
+        <div className="mt-6 flex flex-wrap items-center gap-4 rounded-2xl border border-ink-700 bg-ink-900/60 px-5 py-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-sand-300/20 bg-sand-300/5 text-sand-300">
+              <Receipt size={16} />
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted">Paiement</p>
+              <p className="text-sm font-medium text-cream">
+                {detail.payment.payment_status === 'free'
+                  ? 'Gratuit (dans le quota inclus)'
+                  : detail.payment.payment_status === 'paid'
+                    ? formatEuro(detail.payment.amount_paid)
+                    : detail.payment.payment_status === 'pending'
+                      ? 'En attente'
+                      : 'Échec'}
+              </p>
+            </div>
+          </div>
+
+          <div className="hidden h-8 w-px bg-ink-600 sm:block" />
+
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-ink-600 bg-ink-800 text-cream">
+              <CreditCard size={16} />
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted">Photos achetées</p>
+              <p className="text-sm font-medium text-cream">
+                {detail.payment.extra_count > 0
+                  ? `${detail.payment.extra_count} supplémentaire${detail.payment.extra_count > 1 ? 's' : ''}`
+                  : 'Quota inclus'}
+              </p>
+            </div>
+          </div>
+
+          {detail.payment.payment_status === 'paid' && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-700/40 bg-emerald-900/20 px-3 py-1 text-xs font-medium text-emerald-300">
+              <Check size={12} /> Paiement confirmé
+            </span>
+          )}
+          {detail.payment.payment_status === 'free' && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-sand-700/40 bg-sand-900/20 px-3 py-1 text-xs font-medium text-sand-300">
+              <Check size={12} /> Sans supplément
+            </span>
+          )}
+
+          {detail.payment.paid_at && (
+            <span className="ml-auto text-xs text-muted">
+              {new Date(detail.payment.paid_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Sections */}
       <div className="mt-10 grid gap-8 lg:grid-cols-2">

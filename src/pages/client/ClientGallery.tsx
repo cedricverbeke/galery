@@ -278,17 +278,11 @@ export function ClientGallery({ id }: { id: string }) {
                       className={`absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full backdrop-blur transition-all ${
                         isSelected
                           ? 'bg-sand-300 text-ink-950 scale-100'
-                          : 'bg-ink-950/60 text-cream opacity-0 group-hover:opacity-100 hover:bg-ink-950/80'
+                          : 'bg-ink-950/60 text-cream hover:bg-ink-950/80'
                       }`}
                     >
                       {isSelected ? <Check size={16} /> : <Heart size={16} />}
                     </button>
-                  )}
-
-                  {isSelected && (
-                    <div className="absolute left-3 top-3 flex h-6 w-6 items-center justify-center rounded-full bg-sand-300 text-[10px] font-bold text-ink-950">
-                      <Check size={12} />
-                    </div>
                   )}
                 </div>
               );

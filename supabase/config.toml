@@ -1,3 +1,6 @@
+[functions.get-checkout-session]
+verify_jwt = false
+
 [functions.create-stripe-checkout]
 verify_jwt = false
 

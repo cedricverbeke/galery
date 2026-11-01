@@ -1,0 +1,25 @@
+{
+  "projectId": "72225696",
+  "functions": {
+    "auto-cleanup": {
+      "hasChanged": false,
+      "hash": "1d020cd7aca86faedb80489d7d16753b650b2863739f161330c1cc0620952156"
+    },
+    "create-stripe-checkout": {
+      "hasChanged": false,
+      "hash": "e9ef88657142cce5e0c3753cc42e83fb4114effe31d77c94bde909aea63c7499"
+    },
+    "send-delivery-email": {
+      "hasChanged": false,
+      "hash": "f9729618fd8836edbc3030035fc6ed9d299543c5f59d269aaf2efac032978c79"
+    },
+    "stripe-webhook": {
+      "hasChanged": false,
+      "hash": "48cc6985516a620ac2ba5d3d6f09f7312487e086b8b169a2f703634f67220aff"
+    },
+    "get-checkout-session": {
+      "hasChanged": false,
+      "hash": "72cab572e4a96851006e068909d2fca7cc6028718dc46d683da9337352aa2bcc"
+    }
+  }
+}

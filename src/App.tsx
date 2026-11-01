@@ -8,6 +8,7 @@ import { NewGalleryPage } from '@/pages/admin/NewGalleryPage';
 import { AdminGalleryDetail } from '@/pages/admin/AdminGalleryDetail';
 import { ClientAccess } from '@/pages/client/ClientAccess';
 import { ClientGallery } from '@/pages/client/ClientGallery';
+import { SuccessPage } from '@/pages/client/SuccessPage';
 import { FullSpinner } from '@/components/Spinner';
 
 function AdminRoute({ children }: { children: React.ReactNode }) {
@@ -27,6 +28,8 @@ function Router() {
       return <ClientAccess initialCode={route.code} />;
     case 'gallery':
       return <ClientGallery id={route.id} />;
+    case 'success':
+      return <SuccessPage sessionId={route.sessionId} />;
     case 'admin':
       return (
         <AdminRoute>

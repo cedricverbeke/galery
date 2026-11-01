@@ -61,12 +61,12 @@ export function Landing() {
             <Feature
               icon={Images}
               title="Aperçus filigranés"
-              desc="Téléversez vos photos brutes et laissez vos clients parcourir des aperçus élégants et filigranés en plein écran."
+              desc="Sélectionnez vos photos préférées parmi les aperçus élégants et filigranés."
             />
             <Feature
               icon={Heart}
               title="Sélection intelligente"
-              desc="Vos clients choisissent leurs préférées avec un compteur en temps réel indiquant le quota inclus et le prix des suppléments."
+              desc="Vous voyez, avec un compteur en temps réel, le quota inclus et le prix des suppléments. Aucune mauvaise surprise."
             />
             <Feature
               icon={Shield}

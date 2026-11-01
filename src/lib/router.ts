@@ -5,6 +5,7 @@ export type Route =
   | { name: 'home' }
   | { name: 'access'; code?: string }
   | { name: 'gallery'; id: string }
+  | { name: 'success'; sessionId?: string }
   | { name: 'admin' }
   | { name: 'admin-gallery'; id: string }
   | { name: 'admin-pricing' }
@@ -12,11 +13,14 @@ export type Route =
 
 export function parseHash(hash: string): Route {
   const clean = hash.replace(/^#\/?/, '');
-  const parts = clean.split('/').filter(Boolean);
+  const [pathPart, queryPart] = clean.split('?');
+  const parts = pathPart.split('/').filter(Boolean);
+  const params = new URLSearchParams(queryPart ?? '');
 
   if (parts.length === 0) return { name: 'home' };
   if (parts[0] === 'access') return { name: 'access', code: parts[1] };
   if (parts[0] === 'gallery' && parts[1]) return { name: 'gallery', id: parts[1] };
+  if (parts[0] === 'success') return { name: 'success', sessionId: params.get('session_id') ?? undefined };
   if (parts[0] === 'admin') {
     if (parts[1] === 'pricing') return { name: 'admin-pricing' };
     if (parts[1] === 'new-gallery') return { name: 'admin-new-gallery' };

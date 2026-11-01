@@ -110,6 +110,21 @@ Deno.serve(async (req: Request) => {
         );
       }
 
+      // Record free validation in payments table
+      const { error: payErr } = await supabase
+        .from('payments')
+        .insert({
+          gallery_id,
+          amount_paid: 0,
+          currency: 'eur',
+          extra_count: 0,
+          payment_status: 'free',
+          paid_at: new Date().toISOString(),
+        });
+      if (payErr) {
+        console.error('[create-stripe-checkout] Failed to record free payment:', payErr.message);
+      }
+
       // Fetch filenames for photographer email
       const { data: selectedRows } = await supabase
         .from('photos')
@@ -117,21 +132,21 @@ Deno.serve(async (req: Request) => {
         .in('id', selected_photo_ids);
       const selectedFilenames = (selectedRows ?? []).map((p) => p.filename);
 
-      // Notify photographer (best-effort)
-      try {
-        await fetch(`${supabaseUrl}/functions/v1/send-delivery-email`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: 'photographer_selection_notice',
-            gallery_id,
-            client_name: gallery.client_name,
-            client_email: gallery.client_email,
-            selected_filenames: selectedFilenames,
-          }),
-        });
-      } catch {
-        // best-effort
+      // Notify photographer
+      const emailRes = await fetch(`${supabaseUrl}/functions/v1/send-delivery-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'photographer_selection_notice',
+          gallery_id,
+          client_name: gallery.client_name,
+          client_email: gallery.client_email,
+          selected_filenames: selectedFilenames,
+        }),
+      });
+      if (!emailRes.ok) {
+        const errText = await emailRes.text().catch(() => 'unreadable');
+        console.error('[create-stripe-checkout] send-delivery-email failed:', emailRes.status, errText);
       }
 
       return new Response(
@@ -174,7 +189,7 @@ Deno.serve(async (req: Request) => {
         client_name: gallery.client_name,
         client_email: gallery.client_email,
       },
-      success_url: `${origin}/#/gallery/${gallery_id}?status=paid`,
+      success_url: `${origin}/#/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/#/gallery/${gallery_id}?status=cancelled`,
       customer_email: gallery.client_email,
     });

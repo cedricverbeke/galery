@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Plus, Images, ArrowRight, Inbox, KeyRound } from 'lucide-react';
+import { Fragment } from 'react';
+import { Plus, Images, ArrowRight, Inbox, KeyRound, Trash2, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { Gallery } from '@/types';
 import { STATUS_LABELS } from '@/lib/format';
@@ -7,6 +8,8 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { Button } from '@/components/Button';
 import { Spinner } from '@/components/Spinner';
 import { navigate } from '@/lib/router';
+import { deleteGalleries } from '@/lib/deleteGalleries';
+import { ConfirmDeleteModal } from '@/components/ConfirmDeleteModal';
 import { AdminLayout } from './AdminLayout';
 
 interface GalleryRow extends Gallery {
@@ -19,6 +22,38 @@ export function AdminDashboard() {
   const [galleries, setGalleries] = useState<GalleryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const toggleOne = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const allSelected = galleries.length > 0 && selected.size === galleries.length;
+  const toggleAll = () =>
+    setSelected(allSelected ? new Set() : new Set(galleries.map((g) => g.id)));
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+    const { deleted, errors } = await deleteGalleries([...selected]);
+    setGalleries((prev) => prev.filter((g) => !deleted.includes(g.id)));
+    setSelected(new Set(errors.map((e) => e.id)));
+    setDeleting(false);
+    if (errors.length > 0) {
+      setDeleteError(
+        `${errors.length} galerie${errors.length > 1 ? 's n\'ont' : ' n\'a'} pas pu être supprimée${errors.length > 1 ? 's' : ''} : ${errors[0].message}`,
+      );
+    } else {
+      setConfirmOpen(false);
+    }
+  };
+  const selectedRows = galleries.filter((g) => selected.has(g.id));
 
   useEffect(() => {
     (async () => {
@@ -98,10 +133,42 @@ export function AdminDashboard() {
           </Button>
         </div>
       ) : (
-        <div className="mt-8 overflow-hidden rounded-2xl border border-ink-700">
+        <>
+        {selected.size > 0 && (
+          <div className="mt-8 flex items-center justify-between rounded-2xl border border-sand-300/30 bg-ink-900 px-5 py-3">
+            <span className="text-sm text-cream">
+              {selected.size} galerie{selected.size > 1 ? 's' : ''} sélectionnée{selected.size > 1 ? 's' : ''}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+                <X size={14} /> Désélectionner
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => {
+                  setDeleteError(null);
+                  setConfirmOpen(true);
+                }}
+              >
+                <Trash2 size={14} /> Supprimer
+              </Button>
+            </div>
+          </div>
+        )}
+        <div className={`${selected.size > 0 ? 'mt-4' : 'mt-8'} overflow-hidden rounded-2xl border border-ink-700`}>
           <table className="w-full text-left text-sm">
             <thead className="border-b border-ink-700 bg-ink-900/60 text-xs uppercase tracking-wider text-muted">
               <tr>
+                <th className="w-10 px-5 py-3.5">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    aria-label="Tout sélectionner"
+                    className="h-4 w-4 cursor-pointer accent-[#d9c3a0]"
+                  />
+                </th>
                 <th className="px-5 py-3.5 font-medium">Client</th>
                 <th className="hidden px-5 py-3.5 font-medium md:table-cell">Code</th>
                 <th className="hidden px-5 py-3.5 font-medium md:table-cell">Photos</th>
@@ -115,12 +182,20 @@ export function AdminDashboard() {
                 const isExpanded = expanded === g.id;
                 const hasSelection = g.selected_count > 0;
                 return (
-                  <>
+                  <Fragment key={g.id}>
                     <tr
-                      key={g.id}
                       onClick={() => navigate(`/admin/gallery/${g.id}`)}
-                      className="cursor-pointer transition-colors hover:bg-ink-900/60"
+                      className={`cursor-pointer transition-colors hover:bg-ink-900/60 ${selected.has(g.id) ? 'bg-ink-900/60' : ''}`}
                     >
+                      <td className="px-5 py-4" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(g.id)}
+                          onChange={() => toggleOne(g.id)}
+                          aria-label={`Sélectionner ${g.client_name}`}
+                          className="h-4 w-4 cursor-pointer accent-[#d9c3a0]"
+                        />
+                      </td>
                       <td className="px-5 py-4">
                         <div className="font-medium text-cream">{g.client_name}</div>
                         <div className="text-xs text-muted">{g.title} · {g.client_email}</div>
@@ -158,8 +233,8 @@ export function AdminDashboard() {
                       </td>
                     </tr>
                     {isExpanded && hasSelection && (
-                      <tr key={`${g.id}-detail`} className="bg-ink-900/40">
-                        <td colSpan={6} className="px-5 py-4">
+                      <tr className="bg-ink-900/40">
+                        <td colSpan={7} className="px-5 py-4">
                           <div className="rounded-xl border border-ink-700 bg-ink-950/60 p-4">
                             <p className="mb-2 text-xs font-medium uppercase tracking-wider text-sand-300">
                               Photos sélectionnées par le client
@@ -171,13 +246,24 @@ export function AdminDashboard() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>
           </table>
         </div>
+        </>
       )}
+
+      <ConfirmDeleteModal
+        open={confirmOpen}
+        count={selected.size}
+        label={selectedRows.length === 1 ? `${selectedRows[0].client_name} — ${selectedRows[0].title}` : undefined}
+        loading={deleting}
+        error={deleteError}
+        onCancel={() => setConfirmOpen(false)}
+        onConfirm={handleDelete}
+      />
     </AdminLayout>
   );
 }
