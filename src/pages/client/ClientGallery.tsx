@@ -8,6 +8,9 @@ import {
   CreditCard,
   ArrowLeft,
   Sparkles,
+  MessageSquare,
+  Send,
+  Trash2,
 } from 'lucide-react';
 import { supabase, PREVIEW_BUCKET } from '@/lib/supabase';
 import type { Gallery, PricingGrid, Photo } from '@/types';
@@ -17,6 +20,9 @@ import { Logo } from '@/components/Logo';
 import { Button } from '@/components/Button';
 import { Spinner } from '@/components/Spinner';
 import { navigate } from '@/lib/router';
+
+type PhotoComment = { id: string; comment_text: string; created_at: string };
+type PhotoRow = Photo & { photo_comments?: PhotoComment[] };
 
 interface ClientGalleryData {
   gallery: Gallery;
@@ -32,6 +38,11 @@ export function ClientGallery({ id }: { id: string }) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [commentsByPhoto, setCommentsByPhoto] = useState<Record<string, PhotoComment>>({});
+  const [commentDraft, setCommentDraft] = useState('');
+  const [commentSaving, setCommentSaving] = useState(false);
+  const [commentError, setCommentError] = useState<string | null>(null);
+  const [commentsOpen, setCommentsOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -47,16 +58,27 @@ export function ClientGallery({ id }: { id: string }) {
     }
     const { data: photos } = await supabase
       .from('photos')
-      .select('*')
+      .select('*, photo_comments(id, comment_text, created_at)')
       .eq('gallery_id', id)
       .eq('type', 'preview')
       .order('created_at', { ascending: true });
 
     const grid = (gal as Gallery & { pricing_grid: PricingGrid }).pricing_grid;
+    const photoRows = (photos ?? []) as PhotoRow[];
+    const commentsMap: Record<string, PhotoComment> = {};
+    for (const p of photoRows) {
+      if (p.photo_comments && p.photo_comments.length > 0) {
+        // une seule remarque par photo : on garde la plus récente
+        commentsMap[p.id] = [...p.photo_comments].sort((x, y) =>
+          x.created_at.localeCompare(y.created_at),
+        )[p.photo_comments.length - 1];
+      }
+    }
+    setCommentsByPhoto(commentsMap);
     setData({
       gallery: gal as Gallery,
       pricing_grid: grid,
-      preview_photos: photos ?? [],
+      preview_photos: photoRows,
     });
     setLoading(false);
   }, [id]);
@@ -90,12 +112,24 @@ export function ClientGallery({ id }: { id: string }) {
   const photoUrl = (path: string) =>
     `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/${PREVIEW_BUCKET}/${path}`;
 
-  const openLightbox = (index: number) => setLightboxIndex(index);
+  const openLightbox = (index: number) => {
+    setLightboxIndex(index);
+    setCommentsOpen(false);
+  };
   const closeLightbox = () => setLightboxIndex(null);
   const nextPhoto = () =>
     setLightboxIndex((i) => (i === null ? null : (i + 1) % photos.length));
   const prevPhoto = () =>
     setLightboxIndex((i) => (i === null ? null : (i - 1 + photos.length) % photos.length));
+
+  // À chaque changement de photo, le champ est prérempli avec la remarque existante
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    const ph = photos[lightboxIndex];
+    setCommentDraft(ph ? commentsByPhoto[ph.id]?.comment_text ?? '' : '');
+    setCommentError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lightboxIndex]);
 
   useEffect(() => {
     if (lightboxIndex === null) return;
@@ -107,6 +141,74 @@ export function ClientGallery({ id }: { id: string }) {
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [lightboxIndex, photos.length]);
+
+  // Une seule remarque par photo : on supprime l'ancienne puis on insère la nouvelle
+  const submitComment = async () => {
+    if (lightboxIndex === null || !gallery) return;
+    const photo = photos[lightboxIndex];
+    if (!photo) return;
+    const text = commentDraft.trim();
+    if (!text) return;
+
+    setCommentSaving(true);
+    setCommentError(null);
+
+    if (commentsByPhoto[photo.id]) {
+      const { error: delErr } = await supabase
+        .from('photo_comments')
+        .delete()
+        .eq('photo_id', photo.id);
+      if (delErr) {
+        setCommentSaving(false);
+        setCommentError("Impossible d'enregistrer la remarque.");
+        return;
+      }
+    }
+
+    const { data: inserted, error: insErr } = await supabase
+      .from('photo_comments')
+      .insert({
+        photo_id: photo.id,
+        gallery_id: gallery.id,
+        comment_text: text,
+      })
+      .select('id, comment_text, created_at')
+      .single();
+    setCommentSaving(false);
+
+    if (insErr || !inserted) {
+      setCommentError("Impossible d'enregistrer la remarque.");
+      // l'ancienne remarque a pu être supprimée : on la retire aussi de l'affichage
+      setCommentsByPhoto((prev) => {
+        const next = { ...prev };
+        delete next[photo.id];
+        return next;
+      });
+      return;
+    }
+    setCommentsByPhoto((prev) => ({ ...prev, [photo.id]: inserted as PhotoComment }));
+    setCommentDraft((inserted as PhotoComment).comment_text);
+  };
+
+  const deleteComment = async (photoId: string) => {
+    setCommentSaving(true);
+    setCommentError(null);
+    const { error: delErr } = await supabase
+      .from('photo_comments')
+      .delete()
+      .eq('photo_id', photoId);
+    setCommentSaving(false);
+    if (delErr) {
+      setCommentError('Impossible de supprimer la remarque.');
+      return;
+    }
+    setCommentsByPhoto((prev) => {
+      const next = { ...prev };
+      delete next[photoId];
+      return next;
+    });
+    setCommentDraft('');
+  };
 
   const onValidate = async () => {
     if (!gallery || !grid) return;
@@ -338,84 +440,162 @@ export function ClientGallery({ id }: { id: string }) {
         </div>
       )}
 
-      {/* Visionneuse plein écran */}
-      {lightboxIndex !== null && photos[lightboxIndex] && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/95 animate-fadeIn"
-          onClick={closeLightbox}
-        >
-          <button
+      {/* Visionneuse plein écran : la photo occupe la zone du haut, la barre d'actions est en dessous (rien ne la recouvre) */}
+      {lightboxIndex !== null && photos[lightboxIndex] && (() => {
+        const currentPhoto = photos[lightboxIndex];
+        const remark = commentsByPhoto[currentPhoto.id];
+        const draftIsSaved = !!remark && commentDraft.trim() === remark.comment_text;
+        const isCurrentSelected = selectedIds.has(currentPhoto.id);
+        return (
+          <div
+            className="fixed inset-0 z-50 flex flex-col bg-ink-950/95 animate-fadeIn"
             onClick={closeLightbox}
-            className="absolute right-5 top-5 z-10 flex h-10 w-10 items-center justify-center rounded-full text-cream/70 transition-colors hover:bg-ink-800 hover:text-cream"
           >
-            <X size={22} />
-          </button>
-
-          {photos.length > 1 && (
-            <>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  prevPhoto();
-                }}
-                className="absolute left-5 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full text-cream/70 transition-colors hover:bg-ink-800 hover:text-cream"
-              >
-                <ChevronLeft size={24} />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  nextPhoto();
-                }}
-                className="absolute right-5 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full text-cream/70 transition-colors hover:bg-ink-800 hover:text-cream"
-              >
-                <ChevronRight size={24} />
-              </button>
-            </>
-          )}
-
-          <div className="relative max-h-[85vh] max-w-[90vw]" onClick={(e) => e.stopPropagation()}>
-            <img
-              src={photoUrl(photos[lightboxIndex].file_path)}
-              alt={photos[lightboxIndex].filename}
-              className="max-h-[85vh] max-w-[90vw] rounded-lg object-contain"
-            />
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <span className="font-display text-3xl text-cream/10 tracking-widest2 sm:text-5xl">
-                Déclic Studio
-              </span>
-            </div>
-          </div>
-
-          {!selectionLocked && (
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleSelect(photos[lightboxIndex].id);
-              }}
-              className={`absolute bottom-8 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full px-6 py-3 text-sm font-medium transition-all ${
-                selectedIds.has(photos[lightboxIndex].id)
-                  ? 'bg-sand-300 text-ink-950'
-                  : 'bg-ink-800 text-cream border border-ink-600 hover:bg-ink-700'
-              }`}
+              onClick={closeLightbox}
+              className="absolute right-4 top-4 z-30 flex h-10 w-10 items-center justify-center rounded-full bg-ink-950/50 text-cream/70 transition-colors hover:bg-ink-800 hover:text-cream"
             >
-              {selectedIds.has(photos[lightboxIndex].id) ? (
+              <X size={22} />
+            </button>
+
+            {/* Zone photo */}
+            <div className="relative min-h-0 flex-1">
+              <img
+                src={photoUrl(currentPhoto.file_path)}
+                alt={currentPhoto.filename}
+                className="absolute inset-0 h-full w-full object-contain p-3 sm:p-6"
+                onClick={(e) => e.stopPropagation()}
+              />
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <span className="font-display text-3xl text-cream/10 tracking-widest2 sm:text-5xl">
+                  Déclic Studio
+                </span>
+              </div>
+
+              {photos.length > 1 && (
                 <>
-                  <Check size={16} /> Sélectionnée
-                </>
-              ) : (
-                <>
-                  <Heart size={16} /> Sélectionner cette photo
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      prevPhoto();
+                    }}
+                    className="absolute left-3 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-ink-950/50 text-cream/70 transition-colors hover:bg-ink-800 hover:text-cream"
+                  >
+                    <ChevronLeft size={24} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      nextPhoto();
+                    }}
+                    className="absolute right-3 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-ink-950/50 text-cream/70 transition-colors hover:bg-ink-800 hover:text-cream"
+                  >
+                    <ChevronRight size={24} />
+                  </button>
                 </>
               )}
-            </button>
-          )}
+            </div>
 
-          <div className="absolute bottom-8 right-8 z-10 rounded-full bg-ink-900/80 px-3 py-1.5 text-xs text-muted">
-            {lightboxIndex + 1} / {photos.length}
+            {/* Barre d'actions sous la photo */}
+            <div
+              className="z-20 shrink-0 border-t border-ink-700 bg-ink-900/95 px-4 py-3 backdrop-blur"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {commentsOpen && (
+                <div className="mx-auto mb-3 flex w-full max-w-xl flex-col gap-2">
+                  <label className="text-xs font-medium text-cream/80">
+                    Remarque pour cette photo
+                  </label>
+
+                  {!selectionLocked ? (
+                    <>
+                      <textarea
+                        value={commentDraft}
+                        onChange={(e) => setCommentDraft(e.target.value)}
+                        placeholder="Ex. : retouche, cadrage, recadrer à gauche…"
+                        rows={2}
+                        className="w-full resize-none rounded-lg border border-ink-600 bg-ink-800 px-3 py-2 text-sm text-cream placeholder:text-muted focus:border-sand-300/50 focus:outline-none"
+                      />
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-muted">
+                          {remark && draftIsSaved ? 'Remarque enregistrée' : ''}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          {remark && (
+                            <button
+                              onClick={() => deleteComment(currentPhoto.id)}
+                              disabled={commentSaving}
+                              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-muted transition-colors hover:text-red-300 disabled:opacity-40"
+                            >
+                              <Trash2 size={13} /> Supprimer
+                            </button>
+                          )}
+                          <button
+                            onClick={submitComment}
+                            disabled={commentSaving || !commentDraft.trim() || draftIsSaved}
+                            className="flex items-center gap-1.5 rounded-lg bg-sand-300 px-3 py-1.5 text-xs font-medium text-ink-950 transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {commentSaving ? <Spinner size="sm" /> : <Send size={13} />}
+                            Enregistrer
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  ) : remark ? (
+                    <p className="whitespace-pre-wrap break-words rounded-lg bg-ink-800/60 p-3 text-sm text-cream">
+                      {remark.comment_text}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted">Aucune remarque pour cette photo.</p>
+                  )}
+
+                  {commentError && <p className="text-xs text-red-300">{commentError}</p>}
+                </div>
+              )}
+
+              <div className="mx-auto flex w-full max-w-xl items-center justify-between gap-3">
+                <span className="w-12 text-xs text-muted">
+                  {lightboxIndex + 1} / {photos.length}
+                </span>
+
+                {!selectionLocked ? (
+                  <button
+                    onClick={() => toggleSelect(currentPhoto.id)}
+                    className={`flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all ${
+                      isCurrentSelected
+                        ? 'bg-sand-300 text-ink-950'
+                        : 'border border-ink-600 bg-ink-800 text-cream hover:bg-ink-700'
+                    }`}
+                  >
+                    {isCurrentSelected ? (
+                      <>
+                        <Check size={16} /> Sélectionnée
+                      </>
+                    ) : (
+                      <>
+                        <Heart size={16} /> Sélectionner
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <span />
+                )}
+
+                <button
+                  onClick={() => setCommentsOpen((o) => !o)}
+                  className={`flex w-12 items-center justify-end gap-1.5 text-sm transition-colors ${
+                    commentsOpen ? 'text-sand-300' : 'text-cream/70 hover:text-cream'
+                  }`}
+                  title="Remarque"
+                >
+                  <MessageSquare size={18} />
+                  {remark && <span className="h-2 w-2 rounded-full bg-sand-300" />}
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {!selectionLocked && photos.length > 0 && <div className="h-32" />}
     </div>

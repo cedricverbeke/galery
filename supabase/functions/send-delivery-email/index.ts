@@ -15,6 +15,15 @@ interface EmailBody {
   download_urls?: { filename: string; url: string }[];
 }
 
+// Les remarques sont saisies par le client : on les échappe avant de les mettre dans le HTML du mail
+const escapeHtml = (value: unknown): string =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -53,16 +62,60 @@ Deno.serve(async (req: Request) => {
         );
       }
 
-      const fileList = (body.selected_filenames ?? []).join('  ');
+      const fileList = (body.selected_filenames ?? []).map(escapeHtml).join('  ');
+
+      // Remarques du client (une par photo, la plus récente) pour les photos sélectionnées
+      let remarksHtml = '';
+      if (body.gallery_id) {
+        const { data: commentRows, error: commentsErr } = await supabase
+          .from('photo_comments')
+          .select('photo_id, comment_text, created_at, photo:photos(filename)')
+          .eq('gallery_id', body.gallery_id)
+          .order('created_at', { ascending: true });
+
+        if (commentsErr) {
+          // Le mail part quand même, sans les remarques
+          console.error('[send-delivery-email] Failed to fetch comments:', commentsErr.message);
+        } else {
+          const selected = new Set(body.selected_filenames ?? []);
+          const latestByPhoto = new Map<string, { filename: string; text: string }>();
+          for (const row of commentRows ?? []) {
+            const photo = Array.isArray(row.photo) ? row.photo[0] : row.photo;
+            const filename = photo?.filename as string | undefined;
+            if (!filename) continue;
+            if (selected.size > 0 && !selected.has(filename)) continue;
+            // tri croissant : la dernière remarque écrase les précédentes
+            latestByPhoto.set(row.photo_id, { filename, text: row.comment_text });
+          }
+
+          if (latestByPhoto.size > 0) {
+            const items = Array.from(latestByPhoto.values())
+              .map(
+                (r) => `
+                  <div style="margin: 0 0 16px;">
+                    <p style="color: #D4B996; margin: 0 0 4px; font-size: 13px; word-break: break-all;">${escapeHtml(r.filename)}</p>
+                    <p style="color: #F5F5F5; margin: 0; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${escapeHtml(r.text)}</p>
+                  </div>`,
+              )
+              .join('');
+            remarksHtml = `
+              <div style="background: #0D0D0D; border-radius: 12px; padding: 24px; margin: 24px 0;">
+                <p style="color: #D4B996; margin: 0 0 12px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.1em;">Remarques du client</p>
+                ${items}
+              </div>`;
+          }
+        }
+      }
 
       const html = `
         <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; background: #161616; color: #F5F5F5; padding: 40px;">
           <h1 style="font-family: 'Cormorant Garamond', serif; color: #D4B996; font-size: 28px;">Nouvelle sélection validée</h1>
-          <p style="color: #A3A3A3;">Votre client <strong style="color: #F5F5F5;">${body.client_name}</strong> vient de valider sa sélection de photos.</p>
+          <p style="color: #A3A3A3;">Votre client <strong style="color: #F5F5F5;">${escapeHtml(body.client_name)}</strong> vient de valider sa sélection de photos.</p>
           <div style="background: #0D0D0D; border-radius: 12px; padding: 24px; margin: 24px 0;">
             <p style="color: #D4B996; margin: 0 0 8px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.1em;">Photos à retoucher</p>
             <p style="color: #F5F5F5; font-size: 14px; margin: 0; line-height: 1.8; word-break: break-all;">${fileList || 'Aucune photo listée.'}</p>
           </div>
+          ${remarksHtml}
           <p style="color: #A3A3A3;">Connectez-vous à votre espace studio pour téléverser les versions HD retouchées et les livrer à votre client.</p>
         </div>
       `;
